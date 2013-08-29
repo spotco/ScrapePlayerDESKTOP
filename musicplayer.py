@@ -3,6 +3,7 @@ import curses
 import subprocess
 import signal
 
+
 #ScrapePlayerDESKTOP
 #dependencies:
 #		sox (unix util)
@@ -75,7 +76,6 @@ def r_crawldirs():
 			'ext':ext,
 			'ftime':ftime
 		})
-		
 	for folder in ldirs:
 		try:
 			os.chdir(folder)
@@ -115,10 +115,19 @@ def nc_drawat(x,y,char):
 	if x < WID and y < HEI:
 		STDSCR.addch(y,x,char)
 		
-def nc_drawstringat(x,y,str): 
+def nc_drawstringat(x,y,msg): 
 	global STDSCR,WID,HEI
 	if y <= HEI:
-		STDSCR.addstr(y,x,str[0:( len(str)-(x+len(str)-WID) if x+len(str)-WID > 0 else len(str) )])
+		msg = msg[0:( len(msg)-(x+len(msg)-WID) if x+len(msg)-WID > 0 else len(msg) )]
+		try:
+			STDSCR.addstr(y,x,msg)
+		except UnicodeEncodeError:
+			for i in range(0,len(msg)):
+				try:
+					STDSCR.addstr(y,x+i,msg[i])
+				except UnicodeEncodeError:
+					STDSCR.addstr(y,x+i,"?")
+		
 		
 def get_folderbox_range():
 	global WID,HEI
@@ -201,6 +210,7 @@ def get_actual_folderindex():
 	return folder_localindex + folder_offset * get_folderbox_internal_height()
 
 def reset_folder_and_song_indexes():
+	global folder_localindex,folder_offset,songs_localindex,songs_offset
 	folder_localindex = 0
 	folder_offset = 0
 	songs_localindex = 0
@@ -240,10 +250,13 @@ try:
 				
 			
 		elif INPUT == curses.KEY_RIGHT:
-			reset_folder_and_song_indexes()
-			target_folder = current_folder.get_foldernames()[get_actual_folderindex()]
-			if target_folder in current_folder.subfolders:
-				current_folder = current_folder.subfolders[target_folder]
+			if len(current_folder.get_foldernames()) > 0:
+				target_folder = current_folder.get_foldernames()[get_actual_folderindex()]
+				if target_folder in current_folder.subfolders:
+					current_folder = current_folder.subfolders[target_folder]
+					reset_folder_and_song_indexes()
+			else:
+				debug_output = "empty folder" 
 			
 		elif INPUT == curses.KEY_UP:
 			if current_mode == Mode.FOLDERS:
@@ -291,33 +304,37 @@ try:
 				songs_offset = songs_offset + 1 if (songs_offset+1) * (get_songbox_internal_height()) < len(current_folder.get_songnames()) else 0
 				
 		elif INPUT == ord('p'):
-			songname = current_folder.get_songnames()[get_actual_songindex()]
-			songdata = current_folder.songs[songname]
+			if len(current_folder.get_songnames()) > 0:
+				songname = current_folder.get_songnames()[get_actual_songindex()]
+				songdata = current_folder.songs[songname]
 		
-			if currently_playing == None:
-				is_paused = False
-				currently_playing = subprocess.Popen("play '%s' -q"%(songdata["file"]),shell=True)
-				currently_playing_key = songdata["file"]
-				debug_output = "now playing: '%s'"%(songdata["file"])
-			
-			else:
-				if songdata["file"] == currently_playing_key:
-					if is_paused:
-						currently_playing.send_signal(signal.SIGCONT)
-						is_paused = False
-						debug_output = "now playing: '%s'"%(songdata["file"])
-						
-					else:
-						currently_playing.send_signal(signal.SIGSTOP)
-						is_paused = True
-						debug_output = "paused: '%s'"%(songdata["file"])
-					
-				else:
+				if currently_playing == None:
 					is_paused = False
-					currently_playing.send_signal(signal.SIGKILL)
 					currently_playing = subprocess.Popen("play '%s' -q"%(songdata["file"]),shell=True)
 					currently_playing_key = songdata["file"]
 					debug_output = "now playing: '%s'"%(songdata["file"])
+			
+				else:
+					if songdata["file"] == currently_playing_key:
+						if is_paused:
+							currently_playing.send_signal(signal.SIGCONT)
+							is_paused = False
+							debug_output = "now playing: '%s'"%(songdata["file"])
+						
+						else:
+							currently_playing.send_signal(signal.SIGSTOP)
+							is_paused = True
+							debug_output = "paused: '%s'"%(songdata["file"])
+					
+					else:
+						is_paused = False
+						currently_playing.send_signal(signal.SIGKILL)
+						currently_playing = subprocess.Popen("play '%s' -q"%(songdata["file"]),shell=True)
+						currently_playing_key = songdata["file"]
+						debug_output = "now playing: '%s'"%(songdata["file"])
+				
+			else:
+				debug_output = "no songs in this folder" 
 		
 		clear_screen()
 		draw_ui()
