@@ -3,16 +3,21 @@ import curses
 import subprocess
 import signal
 import threading
+import sys
 
 #ScrapePlayerDESKTOP
 #dependencies:
 #		sox (unix util)
 #		curses
 
+if len(sys.argv) >= 2:
+	os.chdir(sys.argv[1])
+
 #TODO --
 #playlist all in subdir
-#take command line parameters
+#fix pagination max bug
 #shuffle
+#search
 
 #==============begin comparator
 
