@@ -15,7 +15,7 @@ if len(sys.argv) >= 2:
 
 #TODO --
 #playlist all in subdir
-#fix pagination max bug
+#volume
 #shuffle
 #search
 
@@ -36,7 +36,12 @@ def folders_by_name_cmp(a,b):
 	global INVERT_FOLDER
 	return istrcmp(a.name,b.name) * INVERT_FOLDER
 	
+def folders_by_date_cmp(a,b):
+	global INVERT_FOLDER
+	return cmp(a.cached_date,b.cached_date) * INVERT_FOLDER
+	
 SONG_COMPARATOR = songs_by_name_cmp
+FOLDER_COMPARATOR = folders_by_name_cmp
 INVERT_SONG = 1
 INVERT_FOLDER = 1
 
@@ -49,9 +54,12 @@ class FolderNode:
 		self.subfolders = {}
 		self.fulldir = "/"
 		self.parent = None
+		self.cached_date = 0
 	
 	def time(self):
-		return os.path.getmtime(self.fulldir)
+		if (self.cached_date == 0):
+			self.cached_date = os.path.getmtime(self.fulldir)
+		return self.cached_date
 		
 	def add_song(self, songdata): 
 		self.songs[songdata['name']] = songdata
@@ -62,14 +70,16 @@ class FolderNode:
 		return self.subfolders[name]
 		
 	def get_songnames(self):
+		global SONG_COMPARATOR
 		rtv = [self.songs[song] for song in self.songs]
 		rtv.sort(SONG_COMPARATOR)
 		rtv = [song['name'] for song in rtv]
 		return rtv
 		
 	def get_foldernames(self):
+		global FOLDER_COMPARATOR
 		rtv = [self.subfolders[folder] for folder in self.subfolders]
-		rtv.sort(folders_by_name_cmp)
+		rtv.sort(FOLDER_COMPARATOR)
 		rtv = [folder.name for folder in rtv]
 		return rtv
 		
@@ -93,7 +103,7 @@ def str_safe_convert(msg):
 		
 #=============begin folder crawling code
 		
-file_types = ['.mp3','.flac','.wav','.ogg','.aiff']
+file_types = ['.mp3','.flac','.wav','.ogg','.aiff','.m4a']
 file_tree = FolderNode("/")
 file_tree.fulldir = os.getcwd()
 current_folder = file_tree
@@ -300,12 +310,13 @@ def song_finished():
 	
 	
 def play_song(file):
-	global currently_playing, currently_playing_poller,currently_playing_key,debug_output
-	currently_playing = subprocess.Popen("""play '%s' -q -V0"""%(file.replace("'","\'\\\'\'")),shell=True)
+	global currently_playing, currently_playing_poller,currently_playing_key,debug_output,VOLUME
+	cmd = """play --volume %f '%s' -q -V0"""%(VOLUME,file.replace("'","\'\\\'\'"))
+	currently_playing = subprocess.Popen(cmd,shell=True)
 	currently_playing_poller = ProcessPoller(currently_playing)
 	currently_playing_poller.start()
 	currently_playing_key = file
-	debug_output = """play '%s' -q -V0"""%(file.replace("'","\'\\\'\'"))
+	debug_output = cmd
 	
 class Mode:
 	FOLDERS = 0
@@ -322,7 +333,12 @@ class ProcessPoller(threading.Thread):
 		if not self.kill:
 			self.kill = True
 			song_finished()
+			
+class InputMode:
+	VOLUME = 0
+	SEARCH = 1
 	
+VOLUME = 1
 current_folder = file_tree
 debug_output = ""
 debug_output2 = ""
@@ -336,126 +352,157 @@ currently_playing = None
 currently_playing_poller = None
 currently_playing_key = ""
 is_paused = False
+
+cur_input_mode = None
+input_buffer = ""
 	
 try:
-
 	INPUT = ''
-	while True:		
-		if INPUT == ord('q'):
-			break
+	while True:
+		if cur_input_mode != None:
+			if INPUT == curses.KEY_ENTER or INPUT == 10:
+				debug_output = ""
+				debug_output2 = ""
+				if cur_input_mode == InputMode.VOLUME:
+					try:
+						val = float(input_buffer)
+						VOLUME = val
+					except:
+						debug_output = "invalid volume"
+				
+				cur_input_mode = None
 			
-		elif INPUT == ord('t'):
-			current_mode = (current_mode+1)%2
-
-		elif INPUT == ord('i'):
-			if current_mode == Mode.FOLDERS:
-				INVERT_FOLDER = -1 if INVERT_FOLDER == 1 else 1
-				reset_folder_and_song_indexes()
-				debug_output = "invert folder:%d"%INVERT_FOLDER
-							
-			elif current_mode == Mode.SONGS:
-				INVERT_SONG = -1 if INVERT_SONG == 1 else 1
-				reset_folder_and_song_indexes()
-				debug_output = "invert song:%d"%INVERT_SONG
-				
-		elif INPUT == ord('o'):
-			if current_mode == Mode.SONGS:
-				SONG_COMPARATOR = songs_by_name_cmp if SONG_COMPARATOR == songs_by_date_cmp else songs_by_date_cmp
-				debug_output = "song sorted by %s"%("date" if SONG_COMPARATOR == songs_by_date_cmp else "name")
-				reset_folder_and_song_indexes()
+			else:
+				input_buffer += chr(INPUT)
+				debug_output2 = input_buffer
 			
+			
+		else:
 		
-		elif INPUT == curses.KEY_LEFT:
-			if current_mode == Mode.FOLDERS:
-				reset_folder_and_song_indexes()
-				if (current_folder.parent != None):
-					current_folder = current_folder.parent
-				else:
-					debug_output = "at root"
+			if INPUT == ord('v'):
+				cur_input_mode = InputMode.VOLUME
+				debug_output = "input volume:"
+				input_buffer = ""
+			
+			elif INPUT == ord('q'):
+				break
+				
+			elif INPUT == ord('t'):
+				current_mode = (current_mode+1)%2
+	
+			elif INPUT == ord('i'):
+				if current_mode == Mode.FOLDERS:
+					INVERT_FOLDER = -1 if INVERT_FOLDER == 1 else 1
+					reset_folder_and_song_indexes()
+					debug_output = "invert folder:%d"%INVERT_FOLDER
+								
+				elif current_mode == Mode.SONGS:
+					INVERT_SONG = -1 if INVERT_SONG == 1 else 1
+					reset_folder_and_song_indexes()
+					debug_output = "invert song:%d"%INVERT_SONG
+					
+			elif INPUT == ord('o'):
+				if current_mode == Mode.SONGS:
+					SONG_COMPARATOR = songs_by_name_cmp if SONG_COMPARATOR == songs_by_date_cmp else songs_by_date_cmp
+					debug_output = "song sorted by %s"%("date" if SONG_COMPARATOR == songs_by_date_cmp else "name")
+					reset_folder_and_song_indexes()
+				
+				elif current_mode == Mode.FOLDERS:
+					FOLDER_COMPARATOR = folders_by_name_cmp if FOLDER_COMPARATOR == folders_by_date_cmp else folders_by_date_cmp
+					debug_output = "folders sorted by %s"%("date" if FOLDER_COMPARATOR == folders_by_date_cmp else "name")
 				
 			
-		elif INPUT == curses.KEY_RIGHT:
-			if current_mode == Mode.FOLDERS:
-				if len(current_folder.get_foldernames()) > 0:
-					target_folder = current_folder.get_foldernames()[get_actual_folderindex()]
-					if target_folder in current_folder.subfolders:
-						current_folder = current_folder.subfolders[target_folder]
-						reset_folder_and_song_indexes()
-				else:
-					debug_output = "empty folder" 
-			
-		elif INPUT == curses.KEY_UP:
-			if current_mode == Mode.FOLDERS:
-				folder_localindex = folder_localindex - 1
-				if folder_localindex < 0:
-					folder_localindex = min(len(current_folder.get_foldernames())-1-folder_offset * get_folderbox_internal_height(),get_folderbox_internal_height()-1)
-		
-				
-			elif current_mode == Mode.SONGS:
-				songs_localindex = songs_localindex - 1
-				if songs_localindex < 0:
-					songs_localindex = min(len(current_folder.get_songnames())-1-songs_offset * get_songbox_internal_height(),get_songbox_internal_height()-1)
-		
-		elif INPUT == curses.KEY_DOWN:
-			if current_mode == Mode.FOLDERS:
-				folder_localindex = folder_localindex + 1
-				if (folder_localindex + folder_offset * get_folderbox_internal_height()) > min(len(current_folder.get_foldernames())-1,get_folderbox_internal_height()*(folder_offset+1)-1):
-					folder_localindex = 0
-				
-			elif current_mode == Mode.SONGS:
-				songs_localindex = songs_localindex + 1
-				if (songs_localindex + songs_offset * get_songbox_internal_height()) > min(len(current_folder.get_songnames())-1,get_songbox_internal_height()*(songs_offset+1)-1):
-					songs_localindex = 0
-				
-		
-		elif INPUT == ord('z'):
-			if current_mode == Mode.FOLDERS:
-				folder_localindex = 0
-				folder_offset = folder_offset - 1 if folder_offset > 0 else 0
-				
-			elif current_mode == Mode.SONGS:
-				songs_localindex = 0
-				songs_offset = songs_offset - 1 if songs_offset > 0 else 0
-				
-		elif INPUT == ord('x'):
-			if current_mode == Mode.FOLDERS:
-				folder_localindex = 0
-				folder_range = get_folderbox_range()
-				folder_offset = folder_offset + 1 if (folder_offset+1) * (get_folderbox_internal_height()) < len(current_folder.get_foldernames()) else 0
-				
-				
-			elif current_mode == Mode.SONGS:
-				songs_localindex = 0
-				songbox_range = get_songbox_range()
-				songs_offset = songs_offset + 1 if (songs_offset+1) * (get_songbox_internal_height()) < len(current_folder.get_songnames()) else 0
-				
-		elif INPUT == ord('p'):
-			if current_mode == Mode.SONGS:
-				if len(current_folder.get_songnames()) > 0:
-					songname = current_folder.get_songnames()[get_actual_songindex()]
-					songdata = current_folder.songs[songname]
-		
-					if currently_playing == None:
-						is_paused = False
-						play_song(songdata["file"])
-			
+			elif INPUT == curses.KEY_LEFT:
+				if current_mode == Mode.FOLDERS:
+					reset_folder_and_song_indexes()
+					if (current_folder.parent != None):
+						current_folder = current_folder.parent
 					else:
-						if songdata["file"] == currently_playing_key:
-							if is_paused:
-								currently_playing.send_signal(signal.SIGCONT)
-								is_paused = False
-								debug_output = "now playing: '%s'"%(songdata["file"])
+						debug_output = "at root"
+					
+				
+			elif INPUT == curses.KEY_RIGHT:
+				if current_mode == Mode.FOLDERS:
+					if len(current_folder.get_foldernames()) > 0:
+						target_folder = current_folder.get_foldernames()[get_actual_folderindex()]
+						if target_folder in current_folder.subfolders:
+							current_folder = current_folder.subfolders[target_folder]
+							reset_folder_and_song_indexes()
+					else:
+						debug_output = "empty folder" 
+				
+			elif INPUT == curses.KEY_UP:
+				if current_mode == Mode.FOLDERS:
+					folder_localindex = folder_localindex - 1
+					if folder_localindex < 0:
+						folder_localindex = min(len(current_folder.get_foldernames())-1-folder_offset * get_folderbox_internal_height(),get_folderbox_internal_height()-1)
+			
+					
+				elif current_mode == Mode.SONGS:
+					songs_localindex = songs_localindex - 1
+					if songs_localindex < 0:
+						songs_localindex = min(len(current_folder.get_songnames())-1-songs_offset * get_songbox_internal_height(),get_songbox_internal_height()-1)
+			
+			elif INPUT == curses.KEY_DOWN:
+				if current_mode == Mode.FOLDERS:
+					folder_localindex = folder_localindex + 1
+					if (folder_localindex + folder_offset * get_folderbox_internal_height()) > min(len(current_folder.get_foldernames())-1,get_folderbox_internal_height()*(folder_offset+1)-1):
+						folder_localindex = 0
+					
+				elif current_mode == Mode.SONGS:
+					songs_localindex = songs_localindex + 1
+					if (songs_localindex + songs_offset * get_songbox_internal_height()) > min(len(current_folder.get_songnames())-1,get_songbox_internal_height()*(songs_offset+1)-1):
+						songs_localindex = 0
+					
+			
+			elif INPUT == ord('z'):
+				if current_mode == Mode.FOLDERS:
+					folder_localindex = 0
+					folder_offset = folder_offset - 1 if folder_offset > 0 else 0
+					
+				elif current_mode == Mode.SONGS:
+					songs_localindex = 0
+					songs_offset = songs_offset - 1 if songs_offset > 0 else 0
+					
+			elif INPUT == ord('x'):
+				if current_mode == Mode.FOLDERS:
+					folder_localindex = 0
+					folder_range = get_folderbox_range()
+					folder_offset = folder_offset + 1 if (folder_offset+1) * (get_folderbox_internal_height()) < len(current_folder.get_foldernames()) else 0
+					
+					
+				elif current_mode == Mode.SONGS:
+					songs_localindex = 0
+					songbox_range = get_songbox_range()
+					songs_offset = songs_offset + 1 if (songs_offset+1) * (get_songbox_internal_height()) < len(current_folder.get_songnames()) else 0
+					
+			elif INPUT == ord('p'):
+				if current_mode == Mode.SONGS:
+					if len(current_folder.get_songnames()) > 0:
+						songname = current_folder.get_songnames()[get_actual_songindex()]
+						songdata = current_folder.songs[songname]
+			
+						if currently_playing == None:
+							is_paused = False
+							play_song(songdata["file"])
+				
+						else:
+							if songdata["file"] == currently_playing_key:
+								if is_paused:
+									currently_playing.send_signal(signal.SIGCONT)
+									is_paused = False
+									debug_output = "now playing: '%s'"%(songdata["file"])
+							
+								else:
+									currently_playing.send_signal(signal.SIGSTOP)
+									is_paused = True
+									debug_output = "paused: '%s'"%(songdata["file"])
 						
 							else:
-								currently_playing.send_signal(signal.SIGSTOP)
-								is_paused = True
-								debug_output = "paused: '%s'"%(songdata["file"])
-					
-						else:
-							is_paused = False
-							currently_playing_poller.kill = True
-							currently_playing.send_signal(signal.SIGTERM)
-							play_song(songdata["file"])
+								is_paused = False
+								currently_playing_poller.kill = True
+								currently_playing.send_signal(signal.SIGTERM)
+								play_song(songdata["file"])
 
 		
 		update_screen()
