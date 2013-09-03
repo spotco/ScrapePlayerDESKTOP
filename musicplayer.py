@@ -15,7 +15,7 @@ if len(sys.argv) >= 2:
 	os.chdir(sys.argv[1])
 
 #TODO --
-#caching for foldernode outputs
+#something wrong with the pagination looping
 
 #==============begin comparator
 
@@ -49,6 +49,13 @@ FILTER = ""
 #==============begin class definitions
 
 class FolderNode:
+	all_nodes = []
+	@classmethod
+	def set_all_dirty(cls):
+		for node in cls.all_nodes:
+			node.dirty_songs = True
+			node.dirty_folders = True
+
 	def __init__(self, name):
 		self.name = name
 		self.songs = {}
@@ -57,6 +64,12 @@ class FolderNode:
 		self.parent = None
 		self.cached_date = 0
 		self.allsongs = {}
+		
+		self.dirty_songs = True
+		self.dirty_folders = True
+		self.cached_songs = None
+		self.cached_folders = None
+		FolderNode.all_nodes.append(self)
 		
 	def get_songs(self):
 		global LIST_ALL
@@ -80,18 +93,25 @@ class FolderNode:
 		
 	def get_songnames(self):
 		global SONG_COMPARATOR, FILTER
-		use = self.get_songs()
-		rtv = [use[song] for song in use]
-		rtv.sort(SONG_COMPARATOR)
-		rtv = [song['name'] for song in rtv if (FILTER.lower() in song['name'].lower())]
-		return rtv
+		if self.dirty_songs:
+			use = self.get_songs()
+			rtv = [use[song] for song in use]
+			rtv.sort(SONG_COMPARATOR)
+			rtv = [song['name'] for song in rtv if (FILTER.lower() in song['name'].lower())]
+			self.cached_songs = rtv
+			self.dirty_songs = False
+		
+		return self.cached_songs
 		
 	def get_foldernames(self):
 		global FOLDER_COMPARATOR
-		rtv = [self.subfolders[folder] for folder in self.subfolders]
-		rtv.sort(FOLDER_COMPARATOR)
-		rtv = [folder.name for folder in rtv]
-		return rtv
+		if self.dirty_folders:
+			rtv = [self.subfolders[folder] for folder in self.subfolders]
+			rtv.sort(FOLDER_COMPARATOR)
+			rtv = [folder.name for folder in rtv]
+			self.cached_folders = rtv
+			self.dirty_folders = False
+		return self.cached_folders
 		
 class Range2d:
 	def __init__(self,xmin,xmax,ymin,ymax):
@@ -408,6 +428,8 @@ try:
 				elif cur_input_mode == InputMode.FILTER:
 					FILTER = input_buffer
 					debug_output = """filtering on '%s'"""%(FILTER)
+					FolderNode.set_all_dirty()
+					reset_folder_and_song_indexes()
 				
 				cur_input_mode = None
 			
@@ -422,6 +444,10 @@ try:
 				cur_input_mode = InputMode.VOLUME
 				debug_output = "input volume:"
 				input_buffer = ""
+				
+			elif INPUT == ord('n'):
+				if currently_playing != None:
+					currently_playing.send_signal(signal.SIGKILL)
 				
 			elif INPUT == ord('f'): 
 				cur_input_mode = InputMode.FILTER
@@ -439,11 +465,14 @@ try:
 				LIST_ALL = not LIST_ALL
 				reset_folder_and_song_indexes()
 				debug_output = "LIST_ALL:%d"%LIST_ALL
+				FolderNode.set_all_dirty()
 				
 			elif INPUT == ord('t'):
 				current_mode = (current_mode+1)%2
+				FolderNode.set_all_dirty()
 	
 			elif INPUT == ord('i'):
+				FolderNode.set_all_dirty()
 				if current_mode == Mode.FOLDERS:
 					INVERT_FOLDER = -1 if INVERT_FOLDER == 1 else 1
 					reset_folder_and_song_indexes()
@@ -455,6 +484,7 @@ try:
 					debug_output = "invert song:%d"%INVERT_SONG
 					
 			elif INPUT == ord('o'):
+				FolderNode.set_all_dirty()
 				if current_mode == Mode.SONGS:
 					SONG_COMPARATOR = songs_by_name_cmp if SONG_COMPARATOR == songs_by_date_cmp else songs_by_date_cmp
 					debug_output = "song sorted by %s"%("date" if SONG_COMPARATOR == songs_by_date_cmp else "name")
