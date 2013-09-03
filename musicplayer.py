@@ -4,6 +4,7 @@ import subprocess
 import signal
 import threading
 import sys
+import random
 
 #ScrapePlayerDESKTOP
 #dependencies:
@@ -14,10 +15,7 @@ if len(sys.argv) >= 2:
 	os.chdir(sys.argv[1])
 
 #TODO --
-#playlist all in subdir
-#volume
-#shuffle
-#search
+#caching for foldernode outputs
 
 #==============begin comparator
 
@@ -45,6 +43,9 @@ FOLDER_COMPARATOR = folders_by_name_cmp
 INVERT_SONG = 1
 INVERT_FOLDER = 1
 
+LIST_ALL = False
+FILTER = ""
+
 #==============begin class definitions
 
 class FolderNode:
@@ -55,6 +56,14 @@ class FolderNode:
 		self.fulldir = "/"
 		self.parent = None
 		self.cached_date = 0
+		self.allsongs = {}
+		
+	def get_songs(self):
+		global LIST_ALL
+		if LIST_ALL:
+			return self.allsongs
+		else:
+			return self.songs
 	
 	def time(self):
 		if (self.cached_date == 0):
@@ -70,10 +79,11 @@ class FolderNode:
 		return self.subfolders[name]
 		
 	def get_songnames(self):
-		global SONG_COMPARATOR
-		rtv = [self.songs[song] for song in self.songs]
+		global SONG_COMPARATOR, FILTER
+		use = self.get_songs()
+		rtv = [use[song] for song in use]
 		rtv.sort(SONG_COMPARATOR)
-		rtv = [song['name'] for song in rtv]
+		rtv = [song['name'] for song in rtv if (FILTER.lower() in song['name'].lower())]
 		return rtv
 		
 	def get_foldernames(self):
@@ -140,6 +150,20 @@ def r_crawldirs():
 			os.chdir(cwd)
 			
 r_crawldirs()
+
+def dict_addto(dto,dfrom):
+	for key in dfrom:
+		dto[key] = dfrom[key]
+	
+def fill_allsongs(cur):
+	parent = cur
+	dict_addto(cur.allsongs,cur.songs)
+	for childname in cur.subfolders:
+		childsongs = fill_allsongs(cur.subfolders[childname])
+		dict_addto(cur.allsongs,childsongs)
+	return cur.allsongs
+	
+fill_allsongs(current_folder)
 
 #========== BEGIN NCURSES CODE
 
@@ -211,7 +235,8 @@ def draw_ui():
 		for x in range(songbox_range.xmin,songbox_range.xmax): 
 			nc_drawat(x,y,'+') if y == songbox_range.ymin or y == songbox_range.ymax-1 else 0
 			nc_drawat(x,y,'+') if x == songbox_range.xmin or x == songbox_range.xmax-1 else 0
-	nc_drawstringat(0,HEI-5,"(Q)uit (T)pane (Arrows)move (Z/X)pgdown/UP (P)play/pause (o)sort by (I)nvert")
+	nc_drawstringat(0,HEI-6,"(Q)uit (T)ab (Arrow keys)move (Z/X)Page up/down (P)lay/Pause")
+	nc_drawstringat(0,HEI-5,"(o)Sort by (I)nvert (V)olume (F)ilter by (L)ist all/folder (S)huffle")
 	nc_drawstringat(0,HEI-4,"=======MESSAGES:=======")
 	
 def draw_folders():
@@ -235,7 +260,7 @@ def draw_songs():
 	for y in range(songbox_range.ymin+1,songbox_range.ymax-1):
 		if (i >= len(songs)):
 			break
-		nc_drawstringat(songbox_range.xmax-26,y,time.ctime(current_folder.songs[songs[i]]['ftime']))
+		nc_drawstringat(songbox_range.xmax-26,y,time.ctime(current_folder.get_songs()[songs[i]]['ftime']))
 		nc_drawstringat(songbox_range.xmin+2,y,songs[i])
 		nc_drawstringat(songbox_range.xmin+1,y,">") if i == songs_localindex + (songs_offset * get_songbox_internal_height()) else nc_drawstringat(songbox_range.xmin+1,y," ") 
 		i = i + 1
@@ -282,13 +307,21 @@ def reset_folder_and_song_indexes():
 	
 def song_finished():
 	global songs_localindex, songs_offset, current_folder, currently_playing_poller, currently_playing, is_paused, folder_offset
+	global SHUFFLE
 	
 	currently_playing = None
 	currently_playing_poller = None
 	use_height = get_songbox_internal_height() if (get_songbox_internal_height() + songs_offset * get_songbox_internal_height()) < len(current_folder.get_songnames()) else len(current_folder.get_songnames()) % get_songbox_internal_height() 
 	ins = songs_localindex
 	
-	songs_localindex = songs_localindex + 1
+	if SHUFFLE:
+		songs_localindex = random.randint(0,get_songbox_internal_height()) % use_height
+		songs_offset = random.randint(0,int(len(current_folder.get_songnames())/get_songbox_internal_height()))
+		
+	else:
+		songs_localindex = songs_localindex + 1
+		
+		
 	if (songs_localindex >= use_height):
 		songs_localindex = 0
 		songs_offset = songs_offset+1
@@ -299,7 +332,7 @@ def song_finished():
 	songindex = get_actual_songindex()
 	if (songindex < len(current_folder.get_songnames())):
 		songname = current_folder.get_songnames()[songindex]
-		songdata = current_folder.songs[songname]
+		songdata = current_folder.get_songs()[songname]
 		is_paused = False
 		play_song(songdata["file"])
 		update_screen()
@@ -307,6 +340,7 @@ def song_finished():
 	else:
 		nc_drawstringat(0,HEI-2,"song_finished but cannot next")
 		STDSCR.refresh()
+			
 	
 	
 def play_song(file):
@@ -336,9 +370,10 @@ class ProcessPoller(threading.Thread):
 			
 class InputMode:
 	VOLUME = 0
-	SEARCH = 1
+	FILTER = 1
 	
 VOLUME = 1
+SHUFFLE = False
 current_folder = file_tree
 debug_output = ""
 debug_output2 = ""
@@ -370,6 +405,10 @@ try:
 					except:
 						debug_output = "invalid volume"
 				
+				elif cur_input_mode == InputMode.FILTER:
+					FILTER = input_buffer
+					debug_output = """filtering on '%s'"""%(FILTER)
+				
 				cur_input_mode = None
 			
 			else:
@@ -383,9 +422,23 @@ try:
 				cur_input_mode = InputMode.VOLUME
 				debug_output = "input volume:"
 				input_buffer = ""
+				
+			elif INPUT == ord('f'): 
+				cur_input_mode = InputMode.FILTER
+				debug_output = "filter name:"
+				input_buffer = ""
+				
+			elif INPUT == ord('s'):
+				SHUFFLE = not SHUFFLE
+				debug_output = "shuffle: %d"%(SHUFFLE)
 			
 			elif INPUT == ord('q'):
 				break
+				
+			elif INPUT == ord('l'):
+				LIST_ALL = not LIST_ALL
+				reset_folder_and_song_indexes()
+				debug_output = "LIST_ALL:%d"%LIST_ALL
 				
 			elif INPUT == ord('t'):
 				current_mode = (current_mode+1)%2
@@ -480,7 +533,7 @@ try:
 				if current_mode == Mode.SONGS:
 					if len(current_folder.get_songnames()) > 0:
 						songname = current_folder.get_songnames()[get_actual_songindex()]
-						songdata = current_folder.songs[songname]
+						songdata = current_folder.get_songs()[songname]
 			
 						if currently_playing == None:
 							is_paused = False
