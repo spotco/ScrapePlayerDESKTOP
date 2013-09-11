@@ -601,3 +601,5 @@ finally:
 		currently_playing_poller.kill = True
 		currently_playing.send_signal(signal.SIGKILL)
 	nc_end()
+os.system("killall play")
+exit()
