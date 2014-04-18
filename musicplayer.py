@@ -15,9 +15,6 @@ import unicodedata
 if len(sys.argv) >= 2:
 	os.chdir(sys.argv[1])
 
-#TODO --
-#scroll backwards 0->end
-
 #==============begin comparator
 
 def istrcmp(a,b):
@@ -167,6 +164,7 @@ def r_crawldirs():
 			parent_folder = current_folder
 			current_folder = current_folder.add_subfolder(folder)
 			current_folder.fulldir = os.path.join(cwd,folder)
+			current_folder.time() #gotta set that cached time
 			r_crawldirs()
 			current_folder = parent_folder
 			os.chdir(pre_dir)
@@ -354,7 +352,13 @@ def song_finished():
 	
 	currently_playing = None
 	currently_playing_poller = None
-	use_height = get_songbox_internal_height() if (get_songbox_internal_height() + songs_offset * get_songbox_internal_height()) < len(current_folder.get_songnames()) else len(current_folder.get_songnames()) % get_songbox_internal_height() 
+	
+	use_height = len(current_folder.get_songnames()) % get_songbox_internal_height()
+	if use_height == 0 and len(current_folder.get_songnames()) != 0:
+		use_height = get_songbox_internal_height()
+	elif (get_songbox_internal_height() + songs_offset * get_songbox_internal_height()) < len(current_folder.get_songnames()):
+		use_height = get_songbox_internal_height()
+		
 	ins = songs_localindex
 	
 	if SHUFFLE:
@@ -372,6 +376,7 @@ def song_finished():
 	songindex = get_actual_songindex()
 	if (songindex >= len(current_folder.get_songnames())):
 		songs_offset = 0
+
 	songindex = get_actual_songindex()
 	if (songindex < len(current_folder.get_songnames())):
 		songname = current_folder.get_songnames()[songindex]
@@ -517,6 +522,7 @@ try:
 				elif current_mode == Mode.FOLDERS:
 					FOLDER_COMPARATOR = folders_by_name_cmp if FOLDER_COMPARATOR == folders_by_date_cmp else folders_by_date_cmp
 					debug_output = "folders sorted by %s"%("date" if FOLDER_COMPARATOR == folders_by_date_cmp else "name")
+					reset_folder_and_song_indexes()
 				
 			
 			elif INPUT == curses.KEY_LEFT:
@@ -565,11 +571,19 @@ try:
 			elif INPUT == ord('z'):
 				if current_mode == Mode.FOLDERS:
 					folder_localindex = 0
-					folder_offset = folder_offset - 1 if folder_offset > 0 else 0
+					if folder_offset > 0:
+						folder_offset = folder_offset - 1
+					else:
+						while (folder_offset+1) * (get_folderbox_internal_height()) < len(current_folder.get_foldernames()):
+							folder_offset = folder_offset+1
 					
 				elif current_mode == Mode.SONGS:
 					songs_localindex = 0
-					songs_offset = songs_offset - 1 if songs_offset > 0 else 0
+					if songs_offset > 0:
+						songs_offset = songs_offset - 1
+					else:
+						while (songs_offset+1) * (get_songbox_internal_height()) < len(current_folder.get_songnames()):
+							songs_offset = songs_offset+1
 					
 			elif INPUT == ord('x'):
 				if current_mode == Mode.FOLDERS:
