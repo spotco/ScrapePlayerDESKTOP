@@ -151,22 +151,22 @@ def r_crawldirs():
 			continue
 		ftime = os.path.getmtime(file)
 		current_folder.add_song({
-			'file':cwd + "/" +  file,
+			'file':os.path.join(cwd,file),
 			'name':name.decode('utf-8'),
 			'ext':ext,
 			'ftime':ftime
 		})
 	for folder in ldirs:
 		try:
+			pre_dir = os.getcwd()
 			os.chdir(folder)
 			parent_folder = current_folder
 			current_folder = current_folder.add_subfolder(folder)
-			current_folder.fulldir = cwd + "/" + folder
+			current_folder.fulldir = os.path.join(cwd,folder)
 			r_crawldirs()
 			current_folder = parent_folder
-			os.chdir('..')
+			os.chdir(pre_dir)
 		except:
-			print "exception here"
 			os.chdir(cwd)
 			
 r_crawldirs()
@@ -207,8 +207,11 @@ def nc_end():
 def nc_drawat(x,y,char):
 	global STDSCR,WID,HEI
 	if x < WID and y < HEI:
-		STDSCR.addch(y,x,char)
-		
+		try:
+			STDSCR.addch(y,x,char)
+		except:
+			HEI,WID = STDSCR.getmaxyx()
+
 def nc_drawstringat(x,y,msg): 
 	global STDSCR,WID,HEI
 	if y <= HEI:
@@ -233,12 +236,19 @@ def get_songbox_range():
 		
 def draw_ui():
 	global WID,current_folder,current_mode
-	nc_drawstringat(0,0,"ScrapePlayerDESKTOP 0.1 powered by SoX and ncurses")
+	nc_drawstringat(0,0,"ScrapePlayerDESKTOP 0.2 powered by SoX and ncurses (NOW U CAN RESIZE IT)")
+	
+	folders_max = int(len(current_folder.get_foldernames())/(get_folderbox_internal_height()))+1
+	if len(current_folder.get_foldernames()) % get_folderbox_internal_height() == 0:
+		folders_max = folders_max - 1
+	
 	nc_drawstringat(0,2,"%sFolders(Page %s) %s"%(
 		">>>" if current_mode == Mode.FOLDERS else "   ",
-		"%d/%d"%(folder_offset+1,int( len(current_folder.get_foldernames()) / (get_folderbox_internal_height()+1) )+1),
+		"%d/%d"%(folder_offset+1,folders_max),
 		current_folder.fulldir
 	))
+	
+	
 	folderbox_range = get_folderbox_range()
 	nc_drawstringat(folderbox_range.xmax-25,folderbox_range.ymin-1,"Last Modified:")
 	for y in range(folderbox_range.ymin,folderbox_range.ymax):
@@ -246,10 +256,19 @@ def draw_ui():
 			nc_drawat(x,y,'+') if y == folderbox_range.ymin or y == folderbox_range.ymax-1 else 0
 			nc_drawat(x,y,'+') if x == folderbox_range.xmin or x == folderbox_range.xmax-1 else 0
 	songbox_range = get_songbox_range()
+
+	songs_max = int(len(current_folder.get_songnames())/ (get_songbox_internal_height())) + 1
+	if len(current_folder.get_songnames()) % get_songbox_internal_height() == 0:
+		songs_max = songs_max - 1
+
 	nc_drawstringat(0,songbox_range.ymin-1,"%sSongs(Page %s)"%(
 		">>>" if current_mode == Mode.SONGS else "   ",
-		"%d/%d"%(songs_offset+1,int( len(current_folder.get_songnames())/ (get_songbox_internal_height()+1) )+1)
+		"%d/%d"%(
+			songs_offset+1,
+			songs_max
+		)
 	))
+
 	nc_drawstringat(songbox_range.xmax-25,songbox_range.ymin-1,"Last Modified:")
 	for y in range(songbox_range.ymin,songbox_range.ymax):
 		for x in range(songbox_range.xmin,songbox_range.xmax): 
@@ -414,6 +433,7 @@ input_buffer = ""
 try:
 	INPUT = ''
 	while True:
+		HEI,WID = STDSCR.getmaxyx()
 		if cur_input_mode != None:
 			if INPUT == curses.KEY_ENTER or INPUT == 10:
 				debug_output = ""
