@@ -5,6 +5,7 @@ import signal
 import threading
 import sys
 import random
+import unicodedata
 
 #ScrapePlayerDESKTOP
 #dependencies:
@@ -15,7 +16,7 @@ if len(sys.argv) >= 2:
 	os.chdir(sys.argv[1])
 
 #TODO --
-#something wrong with the pagination looping
+#scroll backwards 0->end
 
 #==============begin comparator
 
@@ -124,12 +125,15 @@ def str_safe_convert(msg):
 	sbuf = ""
 	for i in range(0,len(msg)):
 		try:
-			sbuf = sbuf + str(msg[i])
+			sbuf = sbuf + remove_accents(msg[i])
 		except UnicodeEncodeError:
 			sbuf = sbuf + "?"
 		except KeyError:
 			sbuf = sbuf + "?"
 	return sbuf
+
+def remove_accents(data):
+    return ''.join(x for x in unicodedata.normalize('NFKD', data) if x in string.ascii_letters).lower()
 		
 #=============begin folder crawling code
 		
