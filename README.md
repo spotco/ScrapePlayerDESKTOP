@@ -3,6 +3,8 @@ ScrapePlayerDESKTOP
 
 minimalist command line music player (using sox for playback and curses for ui)
 
+install sox ("brew install sox") to make this work on OSX
+
 python musicplayer.py your_folder_with_music_files
 
 navigate folder directory with arrow keys,
